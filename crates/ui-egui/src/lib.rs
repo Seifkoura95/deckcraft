@@ -32,6 +32,12 @@ use serde_json::{Value, json};
 
 pub use control::{ControlRequest, ControlResponse};
 
+/// The name shown to the user in titles, message boxes and the About dialog.
+/// The `simplehub` feature builds the app as Simple Slides inside SimpleHub.
+pub const APP_NAME: &str = if cfg!(feature = "simplehub") { "Simple Slides" } else { "DeckCraft" };
+/// Label of the Help > About entry (const so the command and menu tables can use it).
+pub const ABOUT_LABEL: &str = if cfg!(feature = "simplehub") { "About Simple Slides" } else { "About DeckCraft" };
+
 pub type ReadFn = Box<dyn Fn(&str) -> Result<Vec<u8>, String>>;
 pub type WriteFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
 pub type PickFn = Box<dyn FnMut(&str) -> Option<String>>;
@@ -150,7 +156,7 @@ pub const UI_COMMANDS: &[(&str, &str, Option<&str>, &str)] = &[
     ("show.start", "Slide Show", Some("F5"), "{from?: index}"),
     ("show.presenter", "Presenter View", None, "{on?: bool}"),
     ("show.end", "End Show", None, "{}"),
-    ("app.about", "About DeckCraft", None, "{}"),
+    ("app.about", ABOUT_LABEL, None, "{}"),
     ("app.palette", "Command Palette", Some("Cmd+Shift+P"), "{}"),
     ("app.preferences", "Preferences…", Some("Cmd+,"), "{}"),
     ("app.openDialog", "Open…", None, "{purpose?}"),
@@ -498,7 +504,7 @@ impl SlideApp {
         } else if lower.ends_with(".txt") || lower.ends_with(".md") {
             "slide.fromOutline"
         } else {
-            self.set_status(format!("{name}: DeckCraft can't open this kind of file"));
+            self.set_status(format!("{name}: {} can't open this kind of file", APP_NAME));
             return;
         };
         let p = if cmd == "slide.fromOutline" { json!({"text": String::from_utf8_lossy(bytes)}) } else { json!({"name": name, "data": data}) };

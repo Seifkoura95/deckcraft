@@ -43,7 +43,7 @@ fn title(id: &str) -> &'static str {
         "renameShape" => "Rename",
         "renameLayout" => "Rename Layout",
         "paragraph" => "Paragraph",
-        "about" => "About DeckCraft",
+        "about" => crate::ABOUT_LABEL,
         "preferences" => "Preferences",
         "export" => "Export",
         "symbol" => "Symbol",
@@ -55,8 +55,8 @@ fn title(id: &str) -> &'static str {
         "chartData" => "Chart Data",
         "trim" => "Trim Media",
         "smartart" => "Choose a SmartArt Graphic",
-        "quit" => "DeckCraft",
-        _ => "DeckCraft",
+        "quit" => crate::APP_NAME,
+        _ => crate::APP_NAME,
     }
 }
 
@@ -788,6 +788,20 @@ fn pretty_equation(s: &str) -> String {
 
 pub fn about(_app: &mut SlideApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
+    if cfg!(feature = "simplehub") {
+        // SimpleHub build. DeckCraft is MIT OR Apache-2.0; the licence asks for attribution and
+        // the ArtCraft/DeckCraft marks and community links are left out (they are not open source).
+        ui.vertical_centered(|ui| {
+            ui.label(egui::RichText::new(crate::APP_NAME).font(theme::bold(22.0)));
+            ui.label(egui::RichText::new(version_line()).color(t.text_dim));
+            ui.add_space(6.0);
+            ui.label("Presentations for SimpleHub. Native PPTX, themes, animations, slide shows and PDF export.");
+            ui.add_space(6.0);
+            ui.label("Built on DeckCraft, an open source presentation app by the ArtCraft Team and the DeckCraft contributors, used under the MIT or Apache 2.0 licence.");
+            ui.hyperlink_to("github.com/storytold/deckcraft", "https://github.com/storytold/deckcraft");
+        });
+        return;
+    }
     ui.vertical_centered(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(64.0, 64.0), Sense::hover());
         paint_logo(ui.painter(), r);
@@ -845,7 +859,7 @@ pub fn start_screen(app: &mut SlideApp, ui: &mut Ui) {
             ui.add_space(40.0);
             let (r, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
             paint_logo(ui.painter(), r);
-            ui.label(egui::RichText::new("DeckCraft").font(theme::bold(26.0)));
+            ui.label(egui::RichText::new(crate::APP_NAME).font(theme::bold(26.0)));
         });
         ui.add_space(16.0);
         ui.horizontal(|ui| {
