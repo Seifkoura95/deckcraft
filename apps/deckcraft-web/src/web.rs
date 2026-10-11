@@ -99,6 +99,10 @@ impl eframe::App for WebShell {
                 }
             });
         }
+        #[cfg(feature = "simplehub")]
+        if let Some(dark) = simplehub::take_pending_theme() {
+            simplehub::apply_theme(&mut self.app, ctx, dark);
+        }
         self.app.logic(ctx);
     }
 
@@ -195,14 +199,45 @@ fn mime_for(name: &str) -> &'static str {
 #[cfg(feature = "simplehub")]
 mod simplehub {
     use super::{Inbox, Services, Session, SlideApp, WebShell};
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
     use wasm_bindgen::JsCast as _;
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::JsFuture;
+
+    thread_local! {
+        /// Theme requested from JS (`true` = dark), picked up by `WebShell::logic` on the next frame.
+        static PENDING_THEME: Cell<Option<bool>> = const { Cell::new(None) };
+    }
+
+    /// `"dark"` or `"light"` → dark flag; anything else is ignored.
+    fn parse_theme(theme: &str) -> Option<bool> {
+        match theme.trim().to_ascii_lowercase().as_str() {
+            "dark" => Some(true),
+            "light" => Some(false),
+            _ => None,
+        }
+    }
+
+    pub(super) fn take_pending_theme() -> Option<bool> {
+        PENDING_THEME.with(|p| p.take())
+    }
+
+    /// Applies a theme to the running app: the app's own tokens via `view.dark`, plus egui's theme
+    /// preference pinned so a later `prefers-color-scheme` change cannot swap in stock visuals.
+    pub(super) fn apply_theme(app: &mut SlideApp, ctx: &egui::Context, dark: bool) {
+        ctx.set_theme(if dark { egui::Theme::Dark } else { egui::Theme::Light });
+        if let Err(e) = app.run("view.dark", serde_json::json!({ "on": dark })) {
+            log::error!("theme: {e}");
+        }
+        ctx.request_repaint();
+    }
 
     /// A running instance. SimpleHub calls `destroy` when the module unmounts.
     #[wasm_bindgen]
     pub struct SlidesHandle {
         runner: eframe::WebRunner,
+        ctx: Rc<RefCell<Option<egui::Context>>>,
     }
 
     #[wasm_bindgen]
@@ -214,28 +249,48 @@ mod simplehub {
         pub fn has_panicked(&self) -> bool {
             self.runner.has_panicked()
         }
+
+        /// Switches the running app to `"dark"` or `"light"` on its next frame.
+        pub fn set_theme(&self, theme: &str) {
+            let Some(dark) = parse_theme(theme) else {
+                log::warn!("set_theme: unknown theme {theme:?} (expected \"dark\" or \"light\")");
+                return;
+            };
+            PENDING_THEME.with(|p| p.set(Some(dark)));
+            if let Some(ctx) = self.ctx.borrow().as_ref() {
+                ctx.request_repaint();
+            }
+        }
     }
 
-    /// Starts Simple Slides on `canvas`, with `bridge` providing open and save.
+    /// Starts Simple Slides on `canvas`, with `bridge` providing open and save. An optional
+    /// `bridge.theme` (`"dark"` or `"light"`) sets the theme before the first frame.
     #[wasm_bindgen]
     pub async fn start_simple_slides(canvas: web_sys::HtmlCanvasElement, bridge: JsValue) -> Result<SlidesHandle, JsValue> {
         eframe::WebLogger::init(log::LevelFilter::Info).ok();
+        let initial_theme = js_sys::Reflect::get(&bridge, &JsValue::from_str("theme")).ok().and_then(|v| v.as_string()).and_then(|s| parse_theme(&s));
+        let ctx_slot: Rc<RefCell<Option<egui::Context>>> = Rc::default();
+        let ctx_out = ctx_slot.clone();
         let runner = eframe::WebRunner::new();
         runner
             .start(
                 canvas,
                 eframe::WebOptions::default(),
                 Box::new(move |cc| {
+                    *ctx_out.borrow_mut() = Some(cc.egui_ctx.clone());
                     let inbox: Inbox = Inbox::default();
                     let mut app = SlideApp::new(Session::new(), services(bridge, inbox.clone(), cc.egui_ctx.clone()));
                     if let Err(e) = app.run("file.new", serde_json::json!({})) {
                         log::error!("new presentation: {e}");
                     }
+                    if let Some(dark) = initial_theme {
+                        apply_theme(&mut app, &cc.egui_ctx, dark);
+                    }
                     Ok(Box::new(WebShell { app, inbox }))
                 }),
             )
             .await?;
-        Ok(SlidesHandle { runner })
+        Ok(SlidesHandle { runner, ctx: ctx_slot })
     }
 
     fn services(bridge: JsValue, inbox: Inbox, ctx: egui::Context) -> Services {
